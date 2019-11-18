@@ -430,6 +430,7 @@ class KlabHttpApi:
     digest = hmac_sha1(key, digest_data.encode("utf-8"))
     body = '[%s,"%s"]' % (payload, digest)
     self.__log.debug(body)
+    status = 0
     for i in range(20):
       try:
         req = Request(
