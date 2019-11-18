@@ -1111,11 +1111,16 @@ def run(argv):
   desc += "all loggers are disabled by default. use tag all to enable "
   desc += "every logger"
   parser.add_argument("--log", nargs="*", metavar="", help=desc)
+  desc = "write logs to this file"
+  parser.add_argument("--log-file", help=desc, default=None)
 
   # parse args that should be in effect before loading plugins
   # but ignore help so the help shows plugin args later
   helparg = ["-h", "--help"]
   args, _ = parser.parse_known_args([x for x in argv if x not in helparg])
+
+  if args.log_file:
+    logging.getLogger().addHandler(logging.FileHandler(args.log_file))
 
   for log in args.log or []:
     split = log.rsplit(":", 1)
