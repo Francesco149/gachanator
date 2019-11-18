@@ -439,10 +439,14 @@ class KlabHttpApi:
         )
         with urlopen(req) as resp:
           status = resp.status
+          resp_data = resp.read()
+          p = path_with_query
+          self.__log.debug(
+              "response for path={} payload={}".format(p, payload)
+          )
           self.__log.debug("-> %d" % resp.status)
           for name, val in resp.getheaders():
             self.__log.debug("{}: {}".format(name, val))
-          resp_data = resp.read()
           self.__log.debug(resp_data.decode("utf-8"))
           # [timestamp,x,0,body,hash]
           # x is master_version in some games, in other games it's
