@@ -219,7 +219,7 @@ class DreamTeamEnClient:
     digits = digits[2:7].encode("ascii")
     return self.api.asset_state_v2(digits)
 
-  def login(self):
+  def login(self, invalid_auth=False):
     resp = self.api.call(
         path="/login/login",
         payload={
@@ -233,10 +233,12 @@ class DreamTeamEnClient:
             )
         }
     )
+    # InvalidAuthCountResponse
     if "invalid_auth_count" in resp:
-      # InvalidAuthCountResponse
+      if invalid_auth:
+        raise RuntimeError("could not recover from InvalidAuthCount")
       self.auth_count = resp["invalid_auth_count"]["authorization_count"]
-      self.login()
+      self.login(invalid_auth=True)
       return
     self.auth_count += 1
     mask_bytes = b64decode(resp["session_key"])
