@@ -1206,7 +1206,9 @@ def run(argv):
       if plugin is None:
         raise RuntimeError("got update signal for unknown plugin type")
       if load_config:
-        config = plugin.on_update(file_path)
+        with plugin.cache_open("hash.json") as f:
+          apk = plugin.cache_dir(json.load(f)["filename"])
+        config = plugin.on_update(apk)
         plugin.write_config(config)
         plugin.load_config()
     except queue.Empty:
