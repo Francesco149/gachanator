@@ -165,7 +165,10 @@ class DreamTeamEnPlugin(Plugin):
       if e:
         self.log.error("error in gifts worker", exc_info=e)
 
-    time.sleep(1)
+    if len(rows) == 0:
+      time.sleep(60)
+    else:
+      time.sleep(1)
 
   def client_fields(self):
     fields = ["log", "api_builder", "sender_id"]
