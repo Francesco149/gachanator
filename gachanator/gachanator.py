@@ -769,21 +769,6 @@ def read_unpack(fmt, f):
   return tup
 
 
-def apk_string_by_name(f, name):
-  """
-  finds a string by name in the resources.arsc file
-
-  f: file object or a path for zopen()
-  returns the string
-  raises ValueError if not found
-  """
-  with ARSC(f) as arsc:
-    for k, v in arsc.strings():
-      if k == name:
-        return v
-  raise ValueError("string {} was not found".format(name))
-
-
 # pem -> xml code adapted from https://github.com/MisterDaneel/PemToXml
 
 def pubkey_xml_to_der(xml):
