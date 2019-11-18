@@ -452,7 +452,10 @@ class KlabHttpApi:
       except KeyboardInterrupt:
         break
       except Exception as e:
-        self.__log.error("error during call", exc_info=e)
+        self.__log.error(
+            "error in call with path={} payload={}".format(path, payload),
+            exc_info=e
+        )
         time.sleep(2)
     return None
 
