@@ -99,6 +99,9 @@ class DreamTeamEnPlugin(Plugin):
     }
 
   def tasks(self):
+    if not "api_builder" in self.__dict__ or not self.api_builder:
+      # first update
+      return {}
     return {
         **{"create_{}".format(i): self.create
            for i in range(self.create_threads)},
