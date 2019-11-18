@@ -362,9 +362,17 @@ class KlabHttpApi:
     self.__last_response_time = None
     self.__random_bytes = None
     self.__last_response = None
+    self.__alive = True
 
   def __time(self):
     return int(round(time.time() * self.__time_multiplier))
+
+  def alive(self):
+    """
+    if False, the server has dropped our session and all requests are a
+    no-op
+    """
+    return self.__alive
 
   def gen_mask(self, random_bytes=None):
     """
@@ -400,6 +408,8 @@ class KlabHttpApi:
     payload: must be either a dict or a string
     headers: any additional http headers as a dict
     """
+    if not self.__alive:
+      return None
     if isinstance(payload, dict) or payload is None:
       payload = json.dumps(payload, separators=(',', ':'))
     elif not isinstance(payload, str):
@@ -428,6 +438,7 @@ class KlabHttpApi:
             headers={"Content-Type": "application/json", **headers}
         )
         with urlopen(req) as resp:
+          status = resp.status
           self.__log.debug("-> %d" % resp.status)
           for name, val in resp.getheaders():
             self.__log.debug("{}: {}".format(name, val))
@@ -452,8 +463,14 @@ class KlabHttpApi:
       except KeyboardInterrupt:
         break
       except Exception as e:
+        if status == 204:
+          # if we get 500 sometimes it doesn't let us retry and just
+          # closes the session
+          self.__alive = False
+          return None
+        p = path_with_query
         self.__log.error(
-            "error in call with path={} payload={}".format(path, payload),
+            "error in call with path={} payload={}".format(p, payload),
             exc_info=e
         )
         time.sleep(2)

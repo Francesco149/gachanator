@@ -437,6 +437,8 @@ class DreamTeamEnClient:
     self.set_profile(**profile)
     randsleep(18000)
     self.tutorial_end()
+    if not self.api.alive():
+      return
     randsleep(5000)
     self.fetch_home_info()
     self.commit_account()
