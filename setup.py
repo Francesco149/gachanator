@@ -26,7 +26,6 @@ setup(
     classifiers=gachanator_classifiers,
     keywords="gacha headless client bot",
     install_requires=[
-        "oscrypto", "appdirs", "pyasn1", "push_receiver", "tendo",
-        "sqlite3"
+        "oscrypto", "appdirs", "pyasn1", "push_receiver", "tendo"
     ]
 )
