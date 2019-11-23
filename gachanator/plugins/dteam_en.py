@@ -1,4 +1,4 @@
-from gachanator import KlabHttpApi, Plugin, ApkPureDownloader
+from gachanator import KlabHttpApi, Plugin, QooAppDownloader
 from gachanator import Il2CppMetadata
 from gachanator import pubkey_xml_to_pem, zopen, apk_signatures
 from gachanator import file_hashes, array_xor, iter2
@@ -61,12 +61,14 @@ class DreamTeamEnPlugin(Plugin):
     self.log.debug("firebase sender id is %d" % self.sender_id)
 
   def downloader(self):
-    return ApkPureDownloader(
-        game_name="captain-tsubasa-dream-team",
-        package_name=PACKAGE_NAME
-    )
+    return QooAppDownloader(package_name=PACKAGE_NAME)
 
-  def on_update(self, apk):
+  def on_update(self, apks):
+    dl = self.downloader()
+
+    apk = dl.find_apk(apks)
+    if not apk:
+      raise RuntimeError(f"couldn't find base apk")
     md = "/assets/bin/Data/Managed/Metadata/global-metadata.dat"
     with Il2CppMetadata(apk + md) as il2cpp:
       strings = il2cpp.strings()
@@ -82,9 +84,10 @@ class DreamTeamEnPlugin(Plugin):
         next(strings)
       startup_key = next(strings)
     endpoint = urlunparse(("https", host, path, "", "", ""))
-    with zopen(apk + "/lib/armeabi-v7a/libil2cpp.so") as f:
+    lib = "/lib/armeabi-v7a/"
+    with zopen(apk + lib + "libil2cpp.so") as f:
       il2cpp_hashes = file_hashes(f)
-    with zopen(apk + "/lib/armeabi-v7a/libjackpot-core.so") as f:
+    with zopen(apk + lib + "libjackpot-core.so") as f:
       jackpot_core_hashes = file_hashes(f)
     with zopen(apk + "/META-INF/CERT.RSA") as f:
       package_signatures = apk_signatures(f)

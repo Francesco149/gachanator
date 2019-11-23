@@ -28,7 +28,7 @@ from tendo.singleton import SingleInstance
 from base64 import b64decode, standard_b64encode
 from xml.dom import minidom
 from urllib.request import Request, urlopen
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlencode
 from oscrypto.asymmetric import load_public_key, dump_public_key
 from oscrypto.asymmetric import rsa_oaep_encrypt, rsa_pkcs1v15_encrypt
 from pyasn1_modules import rfc2315
@@ -139,18 +139,29 @@ def gen_google_play_service_id():
   return "a_" + "".join([random.choice("0123456789") for _ in range(19)])
 
 
+def __hash_file(h, f, bufsize):
+  while True:
+    buf = f.read(bufsize)
+    if len(buf) == 0:
+      break
+    h.update(buf)
+  return h.hexdigest()
+
+
 def sha1_file(f, bufsize=16000000):
   """
   computes sha-1 from a file obj, intended for large files.
   returns hex string hash
   """
-  sha1 = hashlib.sha1()
-  while True:
-    buf = f.read(bufsize)
-    if len(buf) == 0:
-      break
-    sha1.update(buf)
-  return sha1.hexdigest()
+  return __hash_file(hashlib.sha1(), f, bufsize)
+
+
+def md5_file(f, bufsize=16000000):
+  """
+  computes md5 from a file obj, intended for large files.
+  returns hex string hash
+  """
+  return __hash_file(hashlib.md5(), f, bufsize)
 
 
 def file_hashes(f, bufsize=16000000):
@@ -665,24 +676,64 @@ class Downloader:
 
   def hash(self):
     """
-    return hash of the latest available apk, ideally without having to
-    download the whole thing. this is used to check if new updates are
+    return hash(es) of the latest available apk(s), ideally without having
+    to download the whole thing. this is used to check if new updates are
     available. does not have to be a specific type of hash as long as
     it's a consistent unique value for each version of the apk
+
+    returns an array of strings. order should be consistent with download
+    and verify
     """
     raise NotImplementedError("Downloader.hash must be implemented")
 
   def download(self):
     """
-    download the latest apk, returns a tuple with the filename and a
-    file-like object. it's recommended to return a filename that is unique
-    for each version
+    generator function that starts download(s) for the latest apk(s).
+    yields (filename, file_object) tuples. it's recommended to
+    return a filename that is unique for each version
+
+    order should be consistent with hash and verify
     """
     raise NotImplementedError("Downloader.download must be implemented")
 
-  def verify(self, file_path, expected_hash):
-    """returns True if expected_hash matches for the file at file_path"""
+  def verify(self, hashes):
+    """
+    verify hashes, which is an array of (file_path, hash) tuples.
+    returns True if all the hashes match
+    """
     return True
+
+
+def url_filename(url):
+  """extract last element of url's path"""
+  return os.path.basename(urlparse(url).path)
+
+
+def response_filename(res):
+  """get the filename as a utf-8 string from a urllib response"""
+  # urllib does not handle different encoding in content-disposition
+  # and always assumes iso-8859-1, so we get the raw bytes back
+  # and assume it's utf-8. there's no small maintained library that
+  # handles this properly. rfc6266 used to work but relies on lepl which
+  # is a huge parser combinator that is unmaintained and doesn't work
+  # on py 3.5+
+  disposition = res.getheader("content-disposition")
+  if disposition is None:
+    return url_filename(res.geturl())
+  fname = res.info().get_filename()
+  if fname is None:
+    return url_filename(res.geturl())
+  return fname.encode("iso-8859-1").decode("utf-8")
+
+
+def randhex(n):
+  """generate a string of random hex digits"""
+  return "".join([random.choice("abcdef0123456789") for _ in range(n)])
+
+
+def randnum(n):
+  """generate a string of random non-zero digits"""
+  return "".join([random.choice("123456789") for _ in range(n)])
 
 
 DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:70.0) "
@@ -725,10 +776,10 @@ class ApkPureDownloader(Downloader):
   def hash(self):
     with self.__open("versions") as resp:
       match = self.__sha1re.search(resp.read().decode("utf-8"))
-      if not match:
-        raise ValueError("couldn't extract sha1")
-      remote_hash = match.group(1)
-      return remote_hash
+    if not match:
+      raise ValueError("couldn't extract sha1")
+    remote_hash = match.group(1)
+    return [remote_hash]
 
   def download(self):
     with self.__open("download?from=versions") as resp:
@@ -737,24 +788,163 @@ class ApkPureDownloader(Downloader):
         raise ValueError("couldn't extract download url")
       url = match.group(0)
     res = self.__open(url=url, hdrs={"Referer": self.__lastcall})
-    # urllib does not handle different encoding in content-disposition
-    # and always assumes iso-8859-1, so we get the raw bytes back
-    # and assume it's utf-8. there's no small maintained library that
-    # handles this properly. rfc6266 used to work but relies on lepl which
-    # is a huge parser combinator that is unmaintained and doesn't work
-    # on py 3.5+
-    disposition = res.getheader("content-disposition")
-    fname = res.info().get_filename()
-    fname = fname.encode("iso-8859-1").decode("utf-8")
-    return fname, res
+    fname = response_filename(res)
+    yield (fname, res)
 
-  def verify(self, file_path, expected_hash):
+  def verify(self, hashes):
     self.__log.info("verifying...")
-    with open(file_path, "rb") as f:
-      actual_hash = sha1_file(f)
-    self.__log.info("     got {}".format(actual_hash))
-    self.__log.info("expected {}".format(expected_hash))
-    return actual_hash == expected_hash
+    for file_path, expected_hash in hashes:
+      with open(file_path, "rb") as f:
+        actual_hash = sha1_file(f)
+      self.__log.info("# " + file_path)
+      self.__log.info("     got {}".format(actual_hash))
+      self.__log.info("expected {}".format(expected_hash))
+      if actual_hash != expected_hash:
+        return False
+    return True
+
+
+# filename pattern for qooapp:
+# {package_name}-{version_code}(-{config})?-{file_size}-{timestamp}.apk
+# example filenames for a split apk:
+# com.klab.lovelive.allstars-26-28819268-1574234096.apk
+# com.klab.lovelive.allstars-26-config.xhdpi-20420-1574234096.apk
+# com.klab.lovelive.allstars-26-config.en-9938-1574234096.apk
+# com.klab.lovelive.allstars-26-config.xxhdpi-23911-1574234126.apk
+# com.klab.lovelive.allstars-26-config.armeabi_v7a-25210343-1574234096.apk
+
+
+class QooAppDownloader(Downloader):
+  """
+  downloads apks from qooapp. this is generally the most up-to-date source
+  that isn't the play store.
+  see Downloader
+  """
+
+  def mkre(self, config=""):
+    """
+    generates a regex for the split apk filename with the given config
+
+    for example, config=r"armeabi_v7a" would match
+    com.someapp-26-config.armeabi_v7a-25210343-1574234096.apk
+
+    this is used to match filenames returned by the downloader
+    """
+    pkg = self.__package_name.replace(".", r"\.")
+    if config:
+      config = r"-config\." + config
+    return re.compile(pkg + r"-[0-9]+" + config + r"-[0-9]+-[0-9]+\.apk")
+
+  def find_apk(self, apks, config=""):
+    """
+    generates a regex using mkre(config=config) and returns the first
+    string in apks that matches it
+    """
+    apk_re = self.mkre(config=config)
+    for apk in apks:
+      if apk_re.match(os.path.basename(apk)):
+        return apk
+    return None
+
+  def __init__(self, package_name):
+    self.__log = logging.getLogger("QooAppDownloader|%s" % package_name)
+    self.__devid = randhex(16)
+    self.__uid = int(randnum(8))
+    self.__token = randhex(40)
+    self.__package_name = package_name
+
+  def __open(
+      self, path=None, url=None, body=None, headers={}, with_query=True,
+      **kwargs
+  ):
+    QOOAPP_VERSION = "7.10.10"
+    QOOAPP_PATCH = 48
+    QOOAPP_HDRS = {
+        "user-agent": f"QooApp {QOOAPP_VERSION}",
+        "device-id": self.__devid
+    }
+    query = {
+        "supported_abis": "x86,armeabi-v7a,armeabi",
+        "device": "OnePlus5",
+        "locale": "en",
+        "opengl": 196608,
+        "rooted": False,
+        "screen": "1280,720",
+        "userId": self.__uid,
+        "device_model": "ONEPLUS A5000",
+        "sdk_version": 25,
+        "user_id": self.__uid,
+        "version_code": 295,
+        "version_name": QOOAPP_VERSION,
+        "os": "android 7.1.1",
+        "adid": str(uuid.uuid4()),
+        "uuid": str(uuid.uuid4()),
+        "device_id": self.__devid,
+        "package_id": "com.qooapp.qoohelper",
+        "otome": 0,
+        "token": self.__token,
+        "android_id": self.__devid,
+        "sa_distinct_id": self.__devid,
+        "patch_code": QOOAPP_PATCH,
+        "density": 240,
+        "system_locale": "en_US",
+        **kwargs
+    }
+    if isinstance(body, dict):
+      body = json.dumps(body)
+    if isinstance(body, str):
+      body = body.encode("utf-8")
+    if not url:
+      url = "https://api.qoo-app.com" + path
+    if with_query:
+      url += "?" + urlencode(query)
+    return urlopen(Request(
+        url=url,
+        headers={**QOOAPP_HDRS, **headers},
+        data=body
+    ))
+
+  def __apks(self):
+    body = {"package_ids": [self.__package_name]}
+    hdrs = {"Content-Type": "application/json"}
+    with self.__open("/v7/apps/device", body=body, headers=hdrs) as r:
+      j = json.load(r)[0]
+    j["split_apks"] = sorted(
+        j["split_apks"],
+        key=lambda x: url_filename(x["url"])
+    )
+    return j
+
+  def hash(self):
+    j = self.__apks()
+    return [j["base_apk_md5"]] + [x["md5"] for x in j["split_apks"]]
+
+  def download(self):
+    j = self.__apks()
+    url = f"/v6/apps/{self.__package_name}/download"
+    query = {
+        "base_apk_version": 0,
+        "base_apk_md5": "null",
+        "type": "app"
+    }
+    base_apk = self.__open(url, **query)
+    base_apk_name = response_filename(base_apk)
+    yield (base_apk_name, base_apk)
+    for x in j["split_apks"]:
+      req = self.__open(url=x["url"], with_query=False)
+      yield (response_filename(req), req)
+
+  def verify(self, hashes):
+    self.__log.info("verifying...")
+    for file_path, expected_hash in hashes:
+      with open(file_path, "rb") as f:
+        actual_hash = md5_file(f)
+      self.__log.info(f"         [{file_path}]")
+      self.__log.info("     got {}".format(actual_hash))
+      self.__log.info("expected {}".format(expected_hash))
+      if actual_hash != expected_hash:
+        return False
+    return True
 
 
 def minidom_get_text(nodelist):
@@ -860,10 +1050,10 @@ class Plugin:
     returns an object that implements the Downloader interface
     """
 
-  def on_update(self, path):
+  def on_update(self, paths):
     """
     called when an update is downloaded.
-    path is the path to the downloaded file
+    paths is an array of paths to the downloaded files
 
     returns a dict that will be written to config.json, or None to avoid
     writing anything
@@ -908,10 +1098,10 @@ class Plugin:
     self.log.debug("initializing config")
     try:
       with self.cache_open("hash.json") as f:
-        apk = self.cache_dir(json.load(f)["filename"])
+        apks = [self.cache_dir(f) for f, _ in json.load(f)]
     except FileNotFoundError:
       return False
-    config = self.on_update(apk)
+    config = self.on_update(apks)
     self.write_config(config)
     self.load_config()
     return True
@@ -959,35 +1149,39 @@ class Plugin:
     logger.debug("updating " + self.tag())
     try:
       with self.cache_open("hash.json") as f:
-        local_hash = json.load(f)
+        local_hashes = [h for _, h in json.load(f)]
     except FileNotFoundError:
-      local_hash = None
-    logger.debug("local hash is {}".format(local_hash))
+      local_hashes = None
+    logger.debug(f"local hashes {local_hashes}")
     dl = self.downloader()
     if dl is None:
       logger.debug("no downloader, skipping")
       return False
     if not isinstance(dl, Downloader):
       raise ValueError("not a Downloader")
-    remote_hash = dl.hash()
-    if local_hash is not None and remote_hash == local_hash["hash"]:
+    remote_hashes = dl.hash()
+    if local_hashes is not None and remote_hashes == local_hashes:
       return False
-    filename, f = dl.download()
-    if f is None:
-      logger.debug("got None file from downloader")
+    hashes = []  # (filename, hash)
+    verify_hashes = []  # (file_path, hash)
+    for i, (filename, f) in enumerate(dl.download()):
+      if f is None:
+        logger.debug("got None file from downloader")
+        return False
+      if filename is None:
+        raise ValueError("Downloader returned empty filename")
+      logger.info("downloading " + filename)
+      with self.cache_open(filename, "wb") as dst:
+        shutil.copyfileobj(f, dst)
+      f.close()
+      file_path = self.cache_dir(filename)
+      verify_hashes.append((file_path, remote_hashes[i]))
+      hashes.append((filename, remote_hashes[i]))
+    if not dl.verify(verify_hashes):
       return False
-    if filename is None:
-      raise ValueError("Downloader returned empty filename")
-    logger.info("downloading " + filename)
-    with self.cache_open(filename, "wb") as dst:
-      shutil.copyfileobj(f, dst)
-    f.close()
-    file_path = self.cache_dir(filename)
-    if dl.verify(file_path, remote_hash):
-      with self.cache_open("hash.json", "w") as f:
-        json.dump({"hash": remote_hash, "filename": filename}, f)
-      return True
-    return False
+    with self.cache_open("hash.json", "w") as f:
+      json.dump(hashes, f)
+    return True
 
 
 # -------------------------------------------------------------------------
@@ -1206,11 +1400,7 @@ def run(argv):
       if plugin is None:
         raise RuntimeError("got update signal for unknown plugin type")
       if load_config:
-        with plugin.cache_open("hash.json") as f:
-          apk = plugin.cache_dir(json.load(f)["filename"])
-        config = plugin.on_update(apk)
-        plugin.write_config(config)
-        plugin.load_config()
+        plugin._Plugin__try_init_config()
     except queue.Empty:
       pass
     except Exception as e:
