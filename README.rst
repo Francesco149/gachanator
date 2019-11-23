@@ -77,7 +77,7 @@ all classes and functions
 
 what it can do
 ===========
-- download apk/xapk's from apkpure
+- download apk/xapk's from qooapp and apkpure
 - read arbitrarily nested files inside apk's, also works with nested apks
 - extract package signature hashes from `/META-INF/CERT.RSA`
 - convert .net xml pub keys to pem
