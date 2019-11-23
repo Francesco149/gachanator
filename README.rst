@@ -34,7 +34,7 @@ now you can manually install the module with pip and run it
 .. code-block:: sh
 
     python3 setup.py install --user
-    python3 -m gachanator
+    python3 -m gachanator --log all
 
 of course, you can also import this as a module and build your own code
 on top of it
