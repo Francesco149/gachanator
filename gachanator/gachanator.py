@@ -262,7 +262,7 @@ def gen_randomized_sequential_id():
   n = 0
   while True:
     n += 1
-    yield "%s%d" % (bytearray(os.urandom(8)).hex(), n)
+    yield f"{bytearray(os.urandom(8)).hex()}{n}"
 
 
 def millitime():
@@ -316,8 +316,8 @@ class KlabHttpApi:
 
   @staticmethod
   def __getlogger(log=None, **kwargs):
-    log = "" if log is None else "[{}]".format(log)
-    return logging.getLogger("KlabHttpApi{}".format(log))
+    log = "" if log is None else f"[{log}]"
+    return logging.getLogger(f"KlabHttpApi{log}")
 
   def __init__(
       self, endpoint, startup_key, pubkey, il2cpp_hashes,
@@ -427,19 +427,19 @@ class KlabHttpApi:
       raise ValueError("payload must be either a str or a dict")
     path_with_query = path + "?p=a"
     if self.master_version:
-      path_with_query += "&mv={}".format(self.master_version)
-    path_with_query += "&id={}".format(next(self.__id))
+      path_with_query += f"&mv={self.master_version}"
+    path_with_query += f"&id={next(self.__id)}"
     if self.user_id:
-      path_with_query += "&u={}".format(self.user_id)
+      path_with_query += f"&u={self.user_id}"
     if self.__last_response_time:
-      path_with_query += "&t={}".format(self.__time())
+      path_with_query += f"&t={self.__time()}"
     if self.language:
-      path_with_query += "&lang={}".format(self.language)
+      path_with_query += f"&lang={self.language}"
     self.__log.debug(path_with_query)
     digest_data = path_with_query + " " + payload
     key = self.temporary_session_key or self.session_key
     digest = hmac_sha1(key, digest_data.encode("utf-8"))
-    body = '[%s,"%s"]' % (payload, digest)
+    body = f'[{payload},"{digest}"]'
     self.__log.debug(body)
     status = 0
     for i in range(20):
@@ -453,12 +453,10 @@ class KlabHttpApi:
           status = resp.status
           resp_data = resp.read()
           p = path_with_query
-          self.__log.debug(
-              "response for path={} payload={}".format(p, payload)
-          )
-          self.__log.debug("-> %d" % resp.status)
+          self.__log.debug(f"response for path={p} payload={payload}")
+          self.__log.debug(f"-> {resp.status}")
           for name, val in resp.getheaders():
-            self.__log.debug("{}: {}".format(name, val))
+            self.__log.debug(f"{name}: {val}")
           self.__log.debug(resp_data.decode("utf-8"))
           # [timestamp,x,0,body,hash]
           # x is master_version in some games, in other games it's
@@ -469,7 +467,7 @@ class KlabHttpApi:
             self.__last_response_time = arr[0]
           else:
             self.__log.warning(
-                "expected int response time, got " + type(arr[0])
+                f"expected int response time, got {type(arr[0])}"
             )
             self.__last_response_time = self.__time()
           for x in arr:
@@ -486,7 +484,7 @@ class KlabHttpApi:
           return None
         p = path_with_query
         self.__log.error(
-            "error in call with path={} payload={}".format(p, payload),
+            f"error in call with path={p} payload={payload}",
             exc_info=e
         )
         time.sleep(2)
@@ -515,7 +513,7 @@ class KlabHttpApi:
     left, right = xored_hashes.hex(), package_signature
     if first_char_odd != 0:
       left, right = right, left
-    signatures = "{}-{}".format(left, right)
+    signatures = f"{left}-{right}"
     xorkey = (
         data[0]
         | (data[1] << 8)
@@ -617,7 +615,7 @@ def zopen(zpath, mode="r"):
   """
   if isinstance(zpath, io.IOBase):
     if hasattr(zpath, "mode") and zpath.mode[0] != mode[0]:
-      raise ValueError("mode {} doesn't match {}".format(zpath.mode, mode))
+      raise ValueError(f"mode {zpath.mode} doesn't match {mode}")
     return zpath
   if mode not in ["r", "w"]:
     raise ValueError("invalid mode " + mode)
@@ -754,7 +752,7 @@ class ApkPureDownloader(Downloader):
 
   def __init__(self, game_name, package_name):
     """initialize a downloader for apkpure.com/game_name/package_name"""
-    self.__log = logging.getLogger("ApkPureDownloader|%s" % package_name)
+    self.__log = logging.getLogger(f"ApkPureDownloader|{package_name}")
     self.__url = "https://apkpure.com/" + quote(game_name) + "/"
     self.__url += quote(package_name)
     self.__log.debug(self.__url)
@@ -796,9 +794,9 @@ class ApkPureDownloader(Downloader):
     for file_path, expected_hash in hashes:
       with open(file_path, "rb") as f:
         actual_hash = sha1_file(f)
-      self.__log.info("# " + file_path)
-      self.__log.info("     got {}".format(actual_hash))
-      self.__log.info("expected {}".format(expected_hash))
+      self.__log.info(f"# {file_path}")
+      self.__log.info(f"     got {actual_hash}")
+      self.__log.info(f"expected {expected_hash}")
       if actual_hash != expected_hash:
         return False
     return True
@@ -847,7 +845,7 @@ class QooAppDownloader(Downloader):
     return None
 
   def __init__(self, package_name):
-    self.__log = logging.getLogger("QooAppDownloader|%s" % package_name)
+    self.__log = logging.getLogger(f"QooAppDownloader|{package_name}")
     self.__devid = randhex(16)
     self.__uid = int(randnum(8))
     self.__token = randhex(40)
@@ -940,8 +938,8 @@ class QooAppDownloader(Downloader):
       with open(file_path, "rb") as f:
         actual_hash = md5_file(f)
       self.__log.info(f"         [{file_path}]")
-      self.__log.info("     got {}".format(actual_hash))
-      self.__log.info("expected {}".format(expected_hash))
+      self.__log.info(f"     got {actual_hash}")
+      self.__log.info(f"expected {expected_hash}")
       if actual_hash != expected_hash:
         return False
     return True
@@ -1273,16 +1271,16 @@ def __load_plugins(path):
 
 
 def __worker(name, f, *args, **kwargs):
-  logger.info("task {} starting".format(name))
+  logger.info(f"task {name} starting")
   tstart = time.time()
   try:
     f(*args, **kwargs)
   except KeyboardInterrupt:
-    logger.error("task {} interrupted".format(name))
+    logger.error(f"task {name} interrupted")
   except Exception as e:
-    logger.error("task {} encountered an error".format(name), exc_info=e)
+    logger.error(f"task {name} encountered an error", exc_info=e)
     time.sleep(10)
-  logger.info("task {} ran for {} s".format(name, time.time() - tstart))
+  logger.info(f"task {name} ran for {time.time() - tstart} s")
 
 
 # threading diagram
@@ -1404,7 +1402,7 @@ def run(argv):
     except queue.Empty:
       pass
     except Exception as e:
-      logger.debug("error updating {}".format(plugin_t), exc_info=e)
+      logger.debug(f"error updating {plugin_t}", exc_info=e)
 
     # check all running tasks and restart as needed
     def restarted(plugin, processes):
@@ -1417,7 +1415,7 @@ def run(argv):
             func = tasks[name]
           except KeyError:
             continue
-          fullname = "{}.{}".format(type(plugin), name)
+          fullname = f"{type(plugin)}.{name}"
           new_process = mp.Process(target=__worker, args=(fullname, func))
           new_process.start()
           yield name, new_process

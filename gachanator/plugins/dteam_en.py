@@ -27,8 +27,7 @@ PACKAGE_NAME = "com.klab.captain283.global"
 
 class DreamTeamEnPlugin(Plugin):
   def on_db_ready(self):
-    db_exec_wait("""
-      create table if not exists {}_accounts (
+    db_exec_wait(f"create table if not exists {self.tag()}_accounts(" """
         user_id int not null,
         last_login int not null,
         archived int not null default 0,
@@ -40,15 +39,14 @@ class DreamTeamEnPlugin(Plugin):
         session_key char[44] not null,
         klab_id_mail text
       )
-    """.format(self.tag()))
-    db_exec_wait("""
-      create table if not exists {}_items(
+    """)
+    db_exec_wait(f"create table if not exists {self.tag()}_items(" """
         user_id integer not null,
         master_id integer not null,
         amount integer not null,
         primary key (user_id, master_id)
       )
-    """.format(self.tag()))
+    """)
 
   def on_config_loaded(self, j):
     self.api_builder = KlabHttpApi.builder(
@@ -58,7 +56,7 @@ class DreamTeamEnPlugin(Plugin):
         language="En"
     )
     self.sender_id = j["sender_id"]
-    self.log.debug("firebase sender id is %d" % self.sender_id)
+    self.log.debug(f"firebase sender id is {self.sender_id}")
 
   def downloader(self):
     return QooAppDownloader(package_name=PACKAGE_NAME)
@@ -106,13 +104,13 @@ class DreamTeamEnPlugin(Plugin):
       # first update
       return {}
     return {
-        **{"create_{}".format(i): self.create
+        **{f"create_{i}": self.create
            for i in range(self.create_threads)},
         "gifts": self.gifts
     }
 
   def add_arguments(self, parser):
-    tag = "[{}] ".format(self.tag())
+    tag = f"[{self.tag()}] "
     pre = "--dteam-en-"
     desc = tag + "parallel account creation threads"
     params = {"help": desc, "type": int, "default": 12, "metavar": "N"}
@@ -134,15 +132,13 @@ class DreamTeamEnPlugin(Plugin):
     # and wait on all of them to be done
 
     old = millitime() - 3600000 * 24
-    rows = db_query("""
-      select * from {}_accounts where last_login < :old and archived = 0
+    rows = db_query(f"select * from {self.tag()}_accounts " """
+      where last_login < :old and archived = 0
       order by last_login asc
       limit :threads
-    """.format(self.tag()),
-        old=old, threads=self.gifts_threads
-    )
+    """, old=old, threads=self.gifts_threads)
 
-    self.log.info("starting %d gifts workers" % len(rows))
+    self.log.info(f"starting {len(rows)} gifts workers")
 
     q = mp.Queue()
 
@@ -465,24 +461,21 @@ class DreamTeamEnClient:
     j = self.fetch_home_info()
     free_stone = j["update_info"]["user_billing_info"]["free_stone"]
     # TODO: other items
-    db_exec("""
-      insert or replace into {}_items(user_id, master_id, amount)
-      values (:user_id, :master_id, :amount)
-        """.format(self.log.name),
+    db_exec("insert or replace "
+            f"into {self.log.name}_items(user_id, master_id, amount)"
+            "values (:user_id, :master_id, :amount)",
             user_id=self.api.user_id, master_id=0, amount=free_stone)
     self.commit_account()
 
   def commit_account(self):
-    db_exec("""
-      insert or replace into {}_accounts (
+    db_exec(f"insert or replace into {self.log.name}_accounts (" """
         user_id, last_login, auth_count, service_id, pass_code,
         advertising_id, device_token, session_key
       ) values (
         :user_id, :last_login, :auth_count, :service_id, :pass_code,
         :advertising_id, :device_token, :session_key
       )
-    """.format(self.log.name),
-            last_login=millitime(), **self.account_fields())
+    """, last_login=millitime(), **self.account_fields())
 
   def account_fields(self):
     # transforms the class fields into a dict to be used in sql queries
